@@ -110,6 +110,8 @@ import torch
 from torch.hub import tqdm
 from torch.testing import make_tensor
 
+current_device_name = torch.get_device_module(acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu").get_device_name()
+
 
 def get_meta(op, key, device_name=None, version=(0, torch.float16, 0.5), exact=False):
     """Return triton kernel meta parameters of the specified op and its inputs key.
@@ -135,7 +137,7 @@ def get_meta(op, key, device_name=None, version=(0, torch.float16, 0.5), exact=F
       mappings that match with the given `key`.
     """
     if device_name is None:
-        device_name = torch.cuda.get_device_name()
+        device_name = current_device_name
 
     op_data = _operation_device_version_data.get((op, device_name, version))
     if op_data is None and not exact:
@@ -727,7 +729,7 @@ def tune_bsr_dense_addmm(
     if store and not (
         may_skip_update and meta == initial_meta and initial_meta is not reference_meta
     ):
-        device_name = torch.cuda.get_device_name()
+        device_name = current_device_name
         update(
             opname,
             device_name,

@@ -35,7 +35,7 @@ from torch.testing._internal.opinfo.refs import (
     ReductionPythonRefInfo
 )
 
-device_type = acc.type if (acc := torch.accelerator.current_accelerator()) else "cpu"
+device_type = acc.type if (acc := torch.accelerator.current_accelerator(True)) else "cpu"
 TEST_MULTIACCELERATOR = torch.accelerator.device_count() >= 2
 
 def _op_supports_any_sparse(op):
