@@ -217,7 +217,10 @@ class TestSparseCompressed(TestCase):
                 self.skipTest("dtype not supported with list values")
 
         expected_devices = [torch.device(device)]
-        if (TEST_CUDA or TEST_XPU) and torch.device(device).type != 'cpu' and TEST_MULTIACCELERATOR and not shape_and_device_inference:
+        if ((TEST_CUDA or TEST_XPU)
+                and torch.device(device).type != 'cpu'
+                and TEST_MULTIACCELERATOR
+                and not shape_and_device_inference):
             expected_devices.append(torch.device(f'{torch.device(device).type}:1'))
 
         factory_function = {
@@ -528,11 +531,13 @@ class TestSparseCompressed(TestCase):
         if not op.supports_sparse_layout(layout):
             self.skipTest(f"{op.name} does not support input with {layout} layout")
 
-        print(op.name)
-        print(layout)
-        print(dtype)
-        if op.name in ["asin", "atanh", "erfinv"] and layout in {torch.sparse_csc, torch.sparse_csr} and dtype in {torch.bool, torch.uint8} and "xpu" in device:
+        if (op.name in ["asin", "atanh", "erfinv"]
+                and layout in {torch.sparse_csc, torch.sparse_csr}
+                and dtype in {torch.bool, torch.uint8}
+                and "xpu" in device):
             self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2212")
+        if op.name in ["zeros_like", "mul", "randn_like"] and layout in {torch.sparse_csc, torch.sparse_csr} and "xpu" in device:
+            self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2209")
 
         # FIXME: remove in followup once integer support is landed for segment_reduce
         if (layout == torch.sparse_csr and not dtype.is_floating_point
@@ -862,7 +867,8 @@ class TestSparseCompressed(TestCase):
                    torch.tensor([0, 1, 0, 1]).to(f'{device_type}:1'),
                    values([1, 2, 3, 4]).to(f'{device_type}:0'),
                    shape((2, 3)),
-                   fr'Expected all tensors to be on the same device, but found at least two devices, {device_type}:0 and {device_type}:1!')
+                   (fr'Expected all tensors to be on the same device, but found at least two '
+                    fr'devices, {device_type}:0 and {device_type}:1!'))
 
     @skipMeta
     @all_sparse_compressed_layouts()
@@ -1375,10 +1381,12 @@ class TestSparseCSR(TestCase):
         self.assertEqual(sparse.to_dense(), transpose(dense, len(batch_shape)))
 
     @dtypes(*all_types_and_complex_and(torch.half, torch.bool, torch.bfloat16))
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2209")
     def test_sparse_csr_to_dense(self, device, dtype):
         self._test_sparse_compressed_to_dense(device, dtype, torch.sparse_csr)
 
     @dtypes(*all_types_and_complex_and(torch.half, torch.bool, torch.bfloat16))
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2209")
     def test_sparse_csc_to_dense(self, device, dtype):
         self._test_sparse_compressed_to_dense(device, dtype, torch.sparse_csc)
 
@@ -1386,6 +1394,7 @@ class TestSparseCSR(TestCase):
     @skipCPUIfNoMklSparse
     @coalescedonoff
     @dtypes(torch.double)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_coo_to_csr_convert(self, device, dtype, coalesced):
         with self.assertRaisesRegex(RuntimeError, "Input is supposed to be a vector"):
             torch._convert_indices_from_coo_to_csr(
@@ -1462,6 +1471,7 @@ class TestSparseCSR(TestCase):
     # TODO: Support auto generation of device check for sparse tensors
     # See: https://github.com/pytorch/pytorch/issues/59058
     @onlyOn(['cuda', 'xpu'])
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     @dtypes(torch.double)
     def test_matmul_device_mismatch(self, device, dtype):
         cpu = torch.rand((10, 10))
@@ -1480,6 +1490,8 @@ class TestSparseCSR(TestCase):
     @dtypesIfCUDA(*floating_and_complex_types_and(
                   *[torch.half] if SM53OrLater else [],
                   *[torch.bfloat16] if SM80OrLater else []))
+    @dtypesIfXPU(*floating_and_complex_types_and(torch.half, torch.bfloat16))
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_csr_matvec(self, device, dtype):
 
         if TEST_WITH_ROCM and (dtype == torch.half or dtype == torch.bfloat16):
@@ -1503,6 +1515,7 @@ class TestSparseCSR(TestCase):
 
     @onlyOn(['cuda', 'xpu'])
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_baddbmm(self, device, dtype):
 
         # TODO: disable the invariant checks within torch.baddbmm that
@@ -1544,6 +1557,7 @@ class TestSparseCSR(TestCase):
     @onlyOn(['cuda', 'xpu'])
     @skipCUDAIfNoSparseGeneric
     @skipIfRocmVersionLessThan((6, 3))
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     def test_bmm(self, device, dtype):
         def run_test(a, a_batched, b, op_b=False, op_out=False, *, dtype=None, device=None):
@@ -1612,9 +1626,11 @@ class TestSparseCSR(TestCase):
     @dtypesIfCUDA(*floating_and_complex_types_and(
                   *[torch.half] if SM53OrLater else [],
                   *[torch.bfloat16] if SM80OrLater else []))
+    @dtypesIfXPU(*floating_and_complex_types_and(torch.half, torch.bfloat16))
     @precisionOverride({torch.float32: 1e-3, torch.complex64: 1e-3,
                         torch.float64: 1e-5, torch.complex128: 1e-5,
                         torch.float16: 1e-3, torch.bfloat16: 1e-3})
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2244")
     def test_block_addmm(self, device, dtype, index_dtype, block_size, noncontiguous):
 
         def make_transposed_addmm_op(f):
@@ -1720,6 +1736,7 @@ class TestSparseCSR(TestCase):
     @parametrize("noncontiguous", [True, False])
     @unittest.skipIf(not TEST_SCIPY, "SciPy not found")
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_block_addmv(self, device, dtype, index_dtype, block_size, noncontiguous):
         # TODO: Explicitly disable block size 1 support
         # if (TEST_WITH_ROCM or not TEST_CUSPARSE_GENERIC) and block_size == 1:
@@ -1762,6 +1779,7 @@ class TestSparseCSR(TestCase):
     @skipCPUIfNoMklSparse
     @unittest.skipIf(not TEST_SCIPY, "SciPy not found")
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_block_triangular_solve(self, device, dtype, index_dtype, block_size, noncontiguous):
         def run_test(a, b, upper, transpose, unitriangular, op_out):
             if unitriangular and self.device_type == 'cpu':
@@ -1834,6 +1852,9 @@ class TestSparseCSR(TestCase):
     @skipIfRocmVersionLessThan((6, 3))
     @dtypes(torch.double)
     def test_mm(self, device, dtype):
+        if "xpu" in device and dtype is torch.float64:
+            self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2209")
+
         def test_shape(di, dj, dk, nnz0=None, nnz1=None):
             for index_dtype in [torch.int32, torch.int64]:
                 alpha = random.random()
@@ -1934,6 +1955,8 @@ class TestSparseCSR(TestCase):
     @dtypesIfCUDA(*floating_and_complex_types_and(
                   *[torch.half] if SM53OrLater and TEST_CUSPARSE_GENERIC else [],
                   *[torch.bfloat16] if SM80OrLater and TEST_CUSPARSE_GENERIC else []))
+    @dtypesIfXPU(*floating_and_complex_types_and(torch.half, torch.bfloat16))
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     @precisionOverride({torch.bfloat16: 1e-2, torch.float16: 1e-2})
     def test_sparse_mm(self, device, dtype):
         def test_shape(d1, d2, d3, nnz, transposed, index_dtype):
@@ -1953,6 +1976,8 @@ class TestSparseCSR(TestCase):
     @dtypesIfCUDA(*floating_and_complex_types_and(
                   *[torch.half] if SM53OrLater and TEST_CUSPARSE_GENERIC else [],
                   *[torch.bfloat16] if SM80OrLater and TEST_CUSPARSE_GENERIC else []))
+    @dtypesIfXPU(*floating_and_complex_types_and(torch.half, torch.bfloat16))
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2213")
     @precisionOverride({torch.bfloat16: 3.5e-2, torch.float16: 1e-2})
     def test_sparse_addmm(self, device, dtype):
         def test_shape(m, n, p, nnz, broadcast, index_dtype, alpha_beta=None):
@@ -1991,6 +2016,8 @@ class TestSparseCSR(TestCase):
                                       *[torch.complex128]
                                       if CUSPARSE_SPMM_COMPLEX128_SUPPORTED or HIPSPARSE_SPMM_COMPLEX128_SUPPORTED
                                       else []))
+    @dtypesIfXPU(*floating_types_and(torch.complex64, torch.bfloat16, torch.half, torch.complex128))
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2213")
     @sparse_compressed_nonblock_layouts()
     def test_addmm_all_sparse_csr(self, device, dtype, layout):
         M = torch.randn(10, 25, device=device).to(dtype)
@@ -2067,9 +2094,14 @@ class TestSparseCSR(TestCase):
                                       *[torch.complex128]
                                       if CUSPARSE_SPMM_COMPLEX128_SUPPORTED or HIPSPARSE_SPMM_COMPLEX128_SUPPORTED
                                       else []))
+    @dtypesIfXPU(*floating_types_and(torch.complex64, torch.bfloat16, torch.half, torch.complex128))
     @precisionOverride({torch.double: 1e-8, torch.float: 1e-4, torch.bfloat16: 0.6,
                         torch.half: 1e-1, torch.cfloat: 1e-4, torch.cdouble: 1e-8})
     def test_addmm_sizes_all_sparse_csr(self, device, dtype, m, n, k):
+        if "xpu" in device and m * n * k != 0:
+            self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2213")
+        elif "xpu" in device and m * n * k == 0:
+            self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2209")
         M = torch.randn(n, m, device=device).to(dtype)
         m1 = torch.randn(n, k, device=device).to(dtype)
         m2 = torch.randn(k, m, device=device).to(dtype)
@@ -2083,6 +2115,7 @@ class TestSparseCSR(TestCase):
 
     @skipCPUIfNoMklSparse
     @dtypes(torch.float)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2245")
     def test_addmm_errors(self, device, dtype):
         # test that the errors are the same for dense and sparse versions
         import re
@@ -2154,6 +2187,7 @@ class TestSparseCSR(TestCase):
 
     @sparse_compressed_nonblock_layouts()
     @dtypes(torch.float, torch.double)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_add(self, device, layout, dtype):
         def _test_spadd_shape(nnz, shape):
             # sparse.to_dense() uses torch.add internally so if torch.add is wrong,
@@ -2334,6 +2368,7 @@ class TestSparseCSR(TestCase):
                 run_test(m, n, index_dtype)
 
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_sparse_add_errors(self, device, dtype):
         def run_test(index_type):
             a = self.genSparseCSRTensor((2, 2), 3, dtype=dtype, device=device, index_dtype=index_dtype)
@@ -2346,6 +2381,7 @@ class TestSparseCSR(TestCase):
 
     @skipCPUIfNoMklSparse
     @skipCUDAIfRocm(msg="needs HIPSPARSE_GENERIC_SPSV or SPSM")
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     @precisionOverride({torch.float32: 1e-3, torch.complex64: 1e-3,
                         torch.float64: 1e-8, torch.complex128: 1e-8})
@@ -2425,6 +2461,7 @@ class TestSparseCSR(TestCase):
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     @precisionOverride({torch.float32: 1e-3, torch.complex64: 1e-3,
                         torch.float64: 1e-8, torch.complex128: 1e-8})
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_sampled_addmm(self, device, dtype):
         def run_test(c, a, b, op_a, op_b, *, alpha=None, beta=None):
             if dtype.is_complex:
@@ -2473,6 +2510,7 @@ class TestSparseCSR(TestCase):
                     run_test(c, a, b, op_a, op_b)
 
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2209")
     def test_sampled_addmm_autograd(self, device, dtype):
         from torch.testing._internal.common_methods_invocations import sample_inputs_sparse_sampled_addmm
 
@@ -2501,6 +2539,7 @@ class TestSparseCSR(TestCase):
     @skipCUDAIfRocm
     @onlyOn(['cuda', 'xpu'])
     @skipCUDAIf(True, "Causes CUDA memory exception, see https://github.com/pytorch/pytorch/issues/72177")
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
     @precisionOverride({torch.float32: 1e-3, torch.complex64: 1e-3,
                         torch.float64: 1e-8, torch.complex128: 1e-8})
@@ -2517,6 +2556,7 @@ class TestSparseCSR(TestCase):
 
     @onlyOn(['cuda', 'xpu'])
     @dtypes(torch.float32, torch.float64, torch.complex64, torch.complex128)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_sampled_addmm_errors(self, device, dtype):
         # test that the errors are the same for dense and sparse sampled versions
         # import re
@@ -2663,6 +2703,7 @@ class TestSparseCSR(TestCase):
             self.assertEqual(csr_sparse.to_dense(), dense)
 
     @skipMeta
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2209")
     @dtypes(*all_types_and_complex_and(torch.half, torch.bool, torch.bfloat16))
     def test_csr_coo_conversion(self, device, dtype):
         for m, n in itertools.product([5, 2, 0], [5, 2, 0]):
@@ -2796,6 +2837,7 @@ class TestSparseCSR(TestCase):
             self.assertEqual(sparse_input.grad, dense_input.grad)
 
     @dtypes(torch.float64)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2213")
     def test_autograd_dense_output_addmm(self, device, dtype):
         from torch.testing._internal.common_methods_invocations import sample_inputs_addmm
 
@@ -2868,6 +2910,7 @@ class TestSparseCSR(TestCase):
 
     @skipCPUIfNoMklSparse
     @dtypes(torch.float64)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2211")
     def test_autograd_dense_output_addmv(self, device, dtype):
         from torch.testing._internal.common_methods_invocations import sample_inputs_addmv
 
@@ -2900,7 +2943,10 @@ class TestSparseCSR(TestCase):
     def test_autograd_dense_output(self, device, dtype, op):
         if op.name == "mv" and no_mkl_sparse and self.device_type == 'cpu':
             self.skipTest("MKL Sparse is not available")
-
+        if op.name == "mm" and self.device_type == 'xpu':
+            self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2213")
+        if op.name == "mv" and self.device_type == 'xpu':
+            self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2211")
         samples = list(op.sample_inputs(device, dtype, requires_grad=True))
 
         # Fail early to prevent silent success with this test
@@ -3217,6 +3263,7 @@ class TestSparseCSR(TestCase):
     @batched_nonbatched()
     @hybrid_nonhybrid()
     @unittest.skipIf(not TEST_SCIPY, "SciPy not found")
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2209")
     def test_dense_to_from_sparse_compressed(self, device, hybrid, batched, layout):
         """This test tests conversion from dense to/from CSR and CSC
         by comparing to SciPy's implementation.
@@ -3546,6 +3593,7 @@ class TestSparseCompressedTritonKernels(TestCase):
     @dtypes(torch.half, torch.bfloat16, torch.float)
     @dtypesIfCUDA(torch.half, *[torch.bfloat16] if SM80OrLater else [], torch.float)
     @unittest.skipIf(IS_FBCODE and IS_REMOTE_GPU, "Test requires Triton")
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2209")
     def test_triton_bsr_softmax(self, device, dtype):
         from functools import partial
         from torch.sparse._triton_ops import bsr_softmax
@@ -3659,6 +3707,7 @@ class TestSparseCompressedTritonKernels(TestCase):
     @dtypes(torch.half)
     @unittest.skipIf(IS_FBCODE and IS_REMOTE_GPU,
                      "Skipped for internal with remote GPUs")
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2246")
     def test_triton_bsr_dense_bmm_error_messages(self, device, dtype):
         from torch.sparse._triton_ops import bsr_dense_mm
 
@@ -4009,6 +4058,7 @@ class TestSparseCompressedTritonKernels(TestCase):
     @onlyOn(['cuda', 'xpu'])
     @dtypes(torch.half, torch.bfloat16, torch.float, torch.int8)
     @dtypesIfCUDA(torch.half, *[torch.bfloat16] if SM80OrLater else [], torch.float, torch.int8)
+    @dtypesIfXPU(torch.half, torch.bfloat16, torch.float, torch.int8)
     @precisionOverride({torch.float16: 6e-1})
     @unittest.skipIf(IS_FBCODE and IS_REMOTE_GPU, "Test requires Triton")
     def test_triton_kernel(self, op, device, dtype, blocksize, out_dtype):
@@ -4019,8 +4069,16 @@ class TestSparseCompressedTritonKernels(TestCase):
             self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2230")
         if "xpu" in device and op == "bsr_dense_linear" and blocksize in [16, 32]:
             self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2211")
-        if "xpu" in device and op == "bsr_dense_addmm" and blocksize in [16, '16x32', 32] and dtype in {torch.bfloat16, torch.float16} and out_dtype == 'unspecified':
+        if ("xpu" in device
+                and op == "bsr_dense_addmm"
+                and dtype in {torch.bfloat16, torch.float16}
+                and out_dtype == 'unspecified'):
             self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2220")
+        if ("xpu" in device
+                and op == "bsr_dense_addmm"
+                and dtype is torch.float32
+                and out_dtype == 'unspecified'):
+            self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2246")
         if "xpu" in device and op in ["bsr_dense_addmm", "_int_bsr_dense_addmm"] and blocksize == 32 and dtype is torch.int8:
             self.skipTest("https://github.com/intel/torch-xpu-ops/issues/2220")
         if out_dtype == "unspecified":
@@ -4192,6 +4250,7 @@ class TestSparseCompressedTritonKernels(TestCase):
     @dtypes(torch.half, torch.bfloat16, torch.float, torch.int8)
     @dtypesIfCUDA(torch.half, *[torch.bfloat16] if SM80OrLater else [], torch.float, torch.int8)
     @dtypesIfXPU(torch.half, torch.bfloat16, torch.float, torch.int8)
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2246")
     @unittest.skipIf(IS_FBCODE and IS_REMOTE_GPU, "Test requires Triton")
     def test_triton_tune(self, op, device, dtype, out_dtype):
         from torch.sparse._triton_ops import bsr_dense_addmm, _int_bsr_dense_addmm
@@ -4250,6 +4309,7 @@ class TestSparseCompressedTritonKernels(TestCase):
 
     @onlyOn(['cuda', 'xpu'])
     @unittest.skipIf(IS_FBCODE and IS_REMOTE_GPU, "Test requires Triton")
+    @skipXPUIf(True, "https://github.com/intel/torch-xpu-ops/issues/2235")
     def test_triton_bsr_dense_addmm_meta(self, device):
         from torch.sparse._triton_ops import bsr_dense_addmm_meta
         from torch.sparse._triton_ops_meta import update as update_bsr_dense_addmm_meta
@@ -4265,7 +4325,7 @@ class TestSparseCompressedTritonKernels(TestCase):
 
         def update_meta(M, K, N, value, sparsity=0.5):
             key = (M, K, N, Ms, Ks, beta == 0, beta == 1, alpha == 1)
-            update_bsr_dense_addmm_meta("bsr_dense_addmm", torch.accelerator.current_accelerator().get_device_name(),
+            update_bsr_dense_addmm_meta("bsr_dense_addmm", device_type,
                                         ("test_triton_bsr_dense_addmm_meta", dtype, sparsity),
                                         key, value)
 
@@ -4275,7 +4335,7 @@ class TestSparseCompressedTritonKernels(TestCase):
                 result = get_meta(M, K, N, sparsity=sparsity)
             msg = f.getvalue()
             FileCheck().check_count(
-                str=f"UserWarning: bsr_dense_addmm uses non-optimal triton kernel parameters for M={M} K={K} N={N}",
+                str=fr'UserWarning: bsr_dense_addmm uses non-optimal triton kernel parameters for M={M} K={K} N={N}',
                 count=warn_count, exactly=True
             ).run(msg)
             return result
